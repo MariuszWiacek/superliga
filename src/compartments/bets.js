@@ -3,7 +3,10 @@ import firebase from 'firebase/compat/app';
 import 'firebase/compat/auth';
 import 'firebase/compat/database';
 import gameData from './gameData.json';
-import Table from './table'; // Import the Table component
+import { getDatabase, ref, onValue } from 'firebase/database';
+import { getAuth } from 'firebase/auth';
+import { initializeApp } from 'firebase/app';
+
 
 const firebaseConfig = {
   apiKey: "AIzaSyCKjpxvNMm3Cb-cA8cPskPY6ROPsg8XO4Q",
@@ -14,9 +17,15 @@ const firebaseConfig = {
   messagingSenderId: "446338011209",
   appId: "1:446338011209:web:bc4a33a19b763564992f98",
   measurementId: "G-W9EB371N7C"
-}
+};
 
 firebase.initializeApp(firebaseConfig);
+
+
+
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const database = getDatabase(firebaseApp);
 
 const Bets = () => {
   const [games, setGames] = useState(gameData);
@@ -26,14 +35,14 @@ const Bets = () => {
   const [missingBets, setMissingBets] = useState(false);
 
   useEffect(() => {
-    firebase.auth().onAuthStateChanged((user) => {
+    auth.onAuthStateChanged((user) => {
       if (user) {
         setUsername(user.displayName);
       }
     });
 
-    const dbRef = firebase.database().ref('submittedData');
-    dbRef.on('value', (snapshot) => {
+    const dbRef = ref(database, 'submittedData');
+    onValue(dbRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setSubmittedData(data);
@@ -72,46 +81,54 @@ const Bets = () => {
       alert('Wprowadź nazwę użytkownika.'); // Display an alert in Polish
       return;
     }
-
+  
     // Check for missing bets
     const hasMissingBets = games.some((game) => !game.score);
-
+  
     if (hasMissingBets) {
       setMissingBets(true);
       alert('Please make a bet for all games before submitting.');
       return;
     }
-
+  
     // Check if the user has already submitted bets for the current round
     if (submittedData[username]) {
       alert('You have already submitted your bets for this round.');
       return;
     }
-
-    const userBets = games
-      .filter((game) => game.score)
-      .map((game) => ({
-        id: game.id,
-        home: game.home,
-        away: game.away,
-        score: game.score,
-        bet: autoDetectBetType(game.score),
-      }));
-
-    const updatedSubmittedData = { ...submittedData };
-    updatedSubmittedData[username] = userBets;
-
-    setSubmittedData(updatedSubmittedData);
-
-    const dbRef = firebase.database().ref('submittedData');
-    dbRef.set(updatedSubmittedData);
-    setIsDataSubmitted(true);
+  
+    // Create an object to hold the user's bets
+    const userBetsObject = {};
+    games.forEach((game) => {
+      if (game.score) {
+        userBetsObject[game.id] = {
+          home: game.home,
+          away: game.away,
+          score: game.score,
+          bet: autoDetectBetType(game.score),
+        };
+      }
+    });
+  
+    // Update Firebase database with the user's bets
+    firebase.database().ref('submittedData').child(username).set(userBetsObject)
+      .then(() => {
+        // Update local state to indicate data submission
+        setSubmittedData({ ...submittedData, [username]: userBetsObject });
+        setIsDataSubmitted(true);
+      })
+      .catch((error) => {
+        // Handle error if data submission fails
+        console.error('Error submitting data:', error);
+        alert('An error occurred while submitting your bets. Please try again.');
+      });
   };
+  
 
   return (
     <div style={{ backgroundColor: '#212529ab', color: 'aliceblue', padding: '20px' }}>
       <h2 style={{ textAlign: 'center' }}>Aktualna kolejka:</h2>
-      <p style={{ textAlign: 'center' }}>11/11/2023</p>
+      <p style={{ textAlign: 'center' }}>22/03/24</p>
       <div style={{ textAlign: 'center', marginBottom: '10px', marginTop: '5%' }}>
         <input
           style={{ margin: '1px' }}
@@ -192,28 +209,22 @@ const Bets = () => {
         
       </div>
       {isDataSubmitted &&
-        Object.keys(submittedData).map((user) => (
-          <div key={user} className="card" style={{ backgroundColor: 'rgba(0, 0, 0, 0.3)', color: 'aliceblue', fontSize: '10px', padding: '10px', margin: '10px', borderRadius: '10px', textAlign: 'center', width: '100%' }}>
-            <h3 style={{ color: 'red' }}>{user}: </h3>
-            {submittedData[user].map((bet, index) => (
-              <div key={index}>
-                {`${bet.home} vs. ${bet.away}, Bet: `}
-                <span style={{ color: 'red' }}>{bet.bet}</span>
-                {`, Score: `}
-                <span style={{ color: 'red' }}>{bet.score}</span>
-                
-              </div>
-              
-              
+      Object.keys(submittedData).map((user) => (
+        <div key={user} className="paper-card" style={{ backgroundColor: 'rgba(255, 255, 255, 0.9)', padding: '20px', margin: '10px', borderRadius: '10px', boxShadow: '0px 2px 4px rgba(0, 0, 0, 0.1)', fontFamily: 'PenFont', fontSize: '16px', color: 'black' }}>
+          {/* User header */}
+          <h3 style={{ color: 'red', marginBottom: '10px', textAlign: 'center' }}>{user}: </h3>
+          {/* Display user bets */}
+          {submittedData[user].map((bet, index) => (
+            <div key={index} style={{ marginBottom: '5px', textAlign: 'center' }}>
+              {`${bet.home} vs. ${bet.away}, Bet: `}
+              <span style={{ color: 'red', fontWeight: 'bold' }}>{bet.bet}</span>
+              {`, Score: `}
+              <span style={{ color: 'red', fontWeight: 'bold' }}>{bet.score}</span>
+            </div>
             ))}
-          </div>
-           
-        ))}
-    </div>
-  );
-  
-};
-
-
+            </div>
+          ))}
+      </div>
+    );}
 
 export default Bets;
